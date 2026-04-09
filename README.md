@@ -12,6 +12,7 @@ This project is forked from [Kobo e-Books Update Checker](https://greasyfork.org
 
 - **Check Results View** — After checking completes, a results window pops up automatically with a summary and a scrollable book list showing the status of each book (color-coded tags).
 - **Copy Outdated Books** — A "Copy Outdated Books" button in the results window lets you copy all outdated book titles to the clipboard in one click.
+- **Copy Blank Template & Contact Support** — A "Copy Template & Contact Support" button copies a pre-written support request template to the clipboard and opens the Kobo Help Center in a new tab, making it easy to request e-book file updates.
 - **Re-check Confirmation** — If the page has already been checked, clicking the check button again asks for confirmation to prevent accidental re-checks.
 
 ## Installation

@@ -7,7 +7,7 @@
 // @author             kevin823lin
 // @contributor        Jason Kwok (Original Author)
 // @namespace          https://github.com/kevin823lin
-// @version            1.8.1-fork.1
+// @version            1.8.1-fork.2
 // @license            MIT
 // @match              https://www.kobo.com/*/*/library/books
 // @match              https://www.kobo.com/*/*/library/books?*
@@ -35,6 +35,7 @@ const LL = (function () {
         CHECKING_PAGE: "Checking Update...",
         CHECK_SINGLE: "Check Update",
         COPY_OUTDATED: "Copy Outdated Books",
+        COPY_TEMPLATE_AND_CONTACT: "Copy Template & Contact Support",
         VIEW_RESULT: "View Check Results",
         COPIED: "Copied",
         CONFIRM: "Confirm",
@@ -56,6 +57,10 @@ const LL = (function () {
           "Failed to parse the latest product ID, please contact the developer for further investigations.",
         UNKNOWN:
           "Unknown error, please contact the developer for further investigations.",
+      },
+      TEMPLATE: {
+        SUBJECT: "Subject:\nRequest for e-book file update",
+        BODY: "Body:\nI confirm that the following books have new files available. I understand and agree that after updating the files, existing highlights and notes will be lost. Please update them to my account, thank you!\n\nBooks to update:",
       },
       MESSAGE: {
         FINISHED_CHECKING_PAGE:
@@ -79,6 +84,7 @@ const LL = (function () {
         CHECKING_PAGE: "正在檢查更新…",
         CHECK_SINGLE: "檢查更新",
         COPY_OUTDATED: "複製過時書籍",
+        COPY_TEMPLATE_AND_CONTACT: "複製空白範本並聯絡客服",
         VIEW_RESULT: "查看檢查結果",
         COPIED: "已複製",
         CONFIRM: "確認",
@@ -97,6 +103,10 @@ const LL = (function () {
         UNLISTED: "該書已下架，目前尚未有方法為這類書籍檢查更新。",
         PARSING: "無法解析最新的產品編號，請聯絡開發者以進一步調查。",
         UNKNOWN: "未知錯誤，請聯絡開發者以進一步調查。",
+      },
+      TEMPLATE: {
+        SUBJECT: "主旨：\n請求協助書檔更新",
+        BODY: "內容：\n我確認以下書籍已有新的書檔，我明白且同意更新書檔後，原有的畫線與備註將會消失，請協助更新至我的帳號，謝謝！\n\n需更新書本如下：",
       },
       MESSAGE: {
         FINISHED_CHECKING_PAGE:
@@ -329,6 +339,11 @@ GM.addStyle(`
         color: #fff;
     }
  
+    #modal-content.library-modal .cta ~ .cta
+    {
+        margin-top: 2rem;
+    }
+ 
 `);
 
 /**
@@ -386,26 +401,42 @@ function createModalBase({ title, message, messageStyle, extraContent = [], butt
   if (messageStyle) actionMessage.style = messageStyle;
   actionMessage.innerHTML = String(message).replaceAll("\n", "<br />");
 
-  const actionButtons = document.createElement("div");
-  actionButtons.classList.add("cta");
+  // 每 2 個按鈕為一組，自動分列建立 .cta div；null 作為佔位符不產生按鈕
+  const ctaGroups = [];
+  for (let i = 0; i < buttons.length; i += 2) {
+    const actionButtons = document.createElement("div");
+    actionButtons.classList.add("cta");
 
-  for (const btnDef of buttons) {
-    const btn = document.createElement("button");
-    btn.className = btnDef.className;
-    btn.textContent = btnDef.text;
-    if (btnDef.disabled) {
-      btn.disabled = true;
+    for (const btnDef of buttons.slice(i, i + 2)) {
+      if (btnDef === null) continue;
+      const btn = document.createElement("button");
+      btn.className = btnDef.className;
+      btn.textContent = btnDef.text;
+      if (btnDef.disabled) {
+        btn.disabled = true;
+      }
+      if (btnDef.action === "close") {
+        btn.addEventListener("click", closeModal);
+      } else if (btnDef.onClick) {
+        btn.addEventListener("click", () => btnDef.onClick(closeModal, btn));
+      }
+      actionButtons.append(btn);
     }
-    if (btnDef.action === "close") {
-      btn.addEventListener("click", closeModal);
-    } else if (btnDef.onClick) {
-      btn.addEventListener("click", () => btnDef.onClick(closeModal, btn));
+    ctaGroups.push(actionButtons);
+  }
+
+  // 將各組 .cta 以小行距 br 分隔後展開為單一陣列
+  const ctaElements = [];
+  for (let i = 0; i < ctaGroups.length; i++) {
+    if (i > 0) {
+      const br = document.createElement("br");
+      ctaElements.push(br);
     }
-    actionButtons.append(btn);
+    ctaElements.push(ctaGroups[i]);
   }
 
   closeWrapper.append(closeButton);
-  actionContainer.append(actionHeader, actionMessage, ...extraContent, actionButtons);
+  actionContainer.append(actionHeader, actionMessage, ...extraContent, ...ctaElements);
   actionWrapper.append(actionContainer);
   modalContainer.append(closeWrapper, actionWrapper);
   modalContent.append(modalContainer);
@@ -504,12 +535,25 @@ function showResultModal(books) {
         className: "primary-button",
         disabled: outdatedBooks.length === 0,
         onClick: (_closeModal, buttonEl) => {
-          GM.setClipboard(outdatedBooks.map(getBookTitle).join("\n"));
+          GM.setClipboard(outdatedBooks.map(getBookTitle).join("\n") + "\n");
           const originalText = buttonEl.textContent;
           buttonEl.textContent = LL.BUTTON.COPIED();
           setTimeout(() => { buttonEl.textContent = originalText; }, 2000);
         },
       },
+      {
+        text: LL.BUTTON.COPY_TEMPLATE_AND_CONTACT(),
+        className: "primary-button",
+        onClick: (_closeModal, buttonEl) => {
+          const template = LL.TEMPLATE.SUBJECT() + "\n\n" + LL.TEMPLATE.BODY() + "\n";
+          GM.setClipboard(template);
+          const originalText = buttonEl.textContent;
+          buttonEl.textContent = LL.BUTTON.COPIED();
+          setTimeout(() => { buttonEl.textContent = originalText; }, 2000);
+          window.open("https://help.kobo.com/hc/", "_blank");
+        },
+      },
+      null,
     ],
   });
 }
@@ -703,6 +747,7 @@ function checkUpdate(book) {
     }
 
     try {
+      // throw new Error(LL.ERROR.UNKNOWN());
       const currentId = getCurrentProductId(book);
       const latestId = await getLatestProductId(book);
       console.debug(
