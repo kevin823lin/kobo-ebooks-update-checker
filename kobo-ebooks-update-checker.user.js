@@ -4,9 +4,10 @@
 // @description        Checks if updates were available for the e-books you own.
 // @description:zh-TW  檢查你購買的電子書是否有更新檔提供。
 // @icon               https://icons.duckduckgo.com/ip3/www.kobo.com.ico
-// @author             Jason Kwok
-// @namespace          https://jasonhk.dev/
-// @version            1.8.0
+// @author             kevin823lin
+// @contributor        Jason Kwok (Original Author)
+// @namespace          https://github.com/kevin823lin
+// @version            1.8.1-fork.1
 // @license            MIT
 // @match              https://www.kobo.com/*/*/library/books
 // @match              https://www.kobo.com/*/*/library/books?*
@@ -19,7 +20,6 @@
 // @require            https://update.greasyfork.org/scripts/483122/1303118/style-shims.js
 // @require            https://unpkg.com/typesafe-i18n@5.26.2/dist/i18n.object.min.js
 // @require            https://update.greasyfork.org/scripts/482311/1297431/queue.js
-// @supportURL         https://greasyfork.org/scripts/482410/feedback
 // ==/UserScript==
 
 const LL = (function () {
@@ -27,6 +27,7 @@ const LL = (function () {
     en: {
       HEADER: {
         MESSAGE: "Message",
+        RESULT: "Check Result",
       },
       BUTTON: {
         OKAY: "Okay",
@@ -34,6 +35,10 @@ const LL = (function () {
         CHECKING_PAGE: "Checking Update...",
         CHECK_SINGLE: "Check Update",
         COPY_OUTDATED: "Copy Outdated Books",
+        VIEW_RESULT: "View Check Results",
+        COPIED: "Copied",
+        CONFIRM: "Confirm",
+        CANCEL: "Cancel",
       },
       STATUS: {
         PENDING: "Pending...",
@@ -58,11 +63,15 @@ const LL = (function () {
         NO_BOOKS_BEEN_CHECKED: "No books have been checked.",
         NO_BOOKS_WERE_OUTDATED: "No books were outdated.",
         COPIED_BOOKS: "Copied {0} book{{s}} into the clipboard.",
+        CONFIRM_RECHECK:
+          "This page has already been checked.\nAre you sure you want to check again?",
+        ALL_LATEST: "All books are up to date.",
       },
     },
     zh: {
       HEADER: {
         MESSAGE: "訊息",
+        RESULT: "檢查結果",
       },
       BUTTON: {
         OKAY: "確定",
@@ -70,6 +79,10 @@ const LL = (function () {
         CHECKING_PAGE: "正在檢查更新…",
         CHECK_SINGLE: "檢查更新",
         COPY_OUTDATED: "複製過時書籍",
+        VIEW_RESULT: "查看檢查結果",
+        COPIED: "已複製",
+        CONFIRM: "確認",
+        CANCEL: "取消",
       },
       STATUS: {
         PENDING: "等待中…",
@@ -91,6 +104,9 @@ const LL = (function () {
         NO_BOOKS_BEEN_CHECKED: "沒有已檢查的書籍。",
         NO_BOOKS_WERE_OUTDATED: "沒有過時的書籍。",
         COPIED_BOOKS: "已複製 {0} 本書到剪貼簿。",
+        CONFIRM_RECHECK:
+          "此頁已完成一次檢查。\n確定要再次檢查嗎？",
+        ALL_LATEST: "所有書籍皆為最新版本。",
       },
     },
   };
@@ -246,11 +262,98 @@ GM.addStyle(`
         text-decoration-line: underline;
         cursor: help;
     }
+ 
+    .result-book-list
+    {
+        max-height: 250px;
+        overflow-y: auto;
+        border: 1px solid #e0e0e0;
+        border-radius: 4px;
+        padding: 8px;
+        margin-top: 12px;
+        text-align: left;
+    }
+ 
+    .result-book-list ul
+    {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+ 
+    .result-book-list li
+    {
+        padding: 6px 8px;
+        border-bottom: 1px solid #f0f0f0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+ 
+    .result-book-list li:last-child
+    {
+        border-bottom: none;
+    }
+ 
+    .result-book-list .status-tag
+    {
+        font-size: 1.2rem;
+        padding: 2px 8px;
+        border-radius: 10px;
+        white-space: nowrap;
+        margin-left: 8px;
+        flex-shrink: 0;
+    }
+ 
+    .result-book-list .status-tag.outdated
+    {
+        background: #FE8484;
+        color: #fff;
+    }
+ 
+    .result-book-list .status-tag.skipped
+    {
+        background: #B5B5B5;
+        color: #fff;
+    }
+ 
+    .result-book-list .status-tag.failed
+    {
+        background: #FFA700;
+        color: #fff;
+    }
+ 
+    .result-book-list .status-tag.latest
+    {
+        background: #4CAF50;
+        color: #fff;
+    }
+ 
 `);
 
-function showModal(message) {
+/**
+ * 建立 Modal 的共用骨架。
+ * @param {Object} options
+ * @param {string} options.title - 標題文字
+ * @param {string} options.message - 訊息文字（支援 \n 換行）
+ * @param {string} options.messageStyle - 訊息樣式
+ * @param {HTMLElement[]} [options.extraContent] - 插入於訊息與按鈕之間的額外 DOM 節點
+ * @param {Array<{text: string, className: string, onClick?: Function, action?: string, disabled?: boolean}>} options.buttons - 按鈕定義
+ * @returns {{ modal: HTMLElement, closeModal: Function }}
+ */
+function createModalBase({ title, message, messageStyle, extraContent = [], buttons }) {
   const modal = document.createElement("div");
   modal.id = "modal";
+
+  function closeModal() {
+    if (document.querySelectorAll("#modal").length > 1) {
+      modal.remove();
+    } else {
+      document.body.classList.remove("show-modal");
+      setTimeout(() => modal.remove(), 250);
+    }
+  }
+
   modal.addEventListener(
     "click",
     (event) => event.target === modal && closeModal(),
@@ -277,24 +380,32 @@ function showModal(message) {
 
   const actionHeader = document.createElement("h2");
   actionHeader.classList.add("confirm");
-  actionHeader.textContent = LL.HEADER.MESSAGE();
+  actionHeader.textContent = title;
 
   const actionMessage = document.createElement("p");
-  actionMessage.style = "display: inline-block; text-align: left;";
+  if (messageStyle) actionMessage.style = messageStyle;
   actionMessage.innerHTML = String(message).replaceAll("\n", "<br />");
 
   const actionButtons = document.createElement("div");
   actionButtons.classList.add("cta");
-  actionButtons.style = "display: block;";
 
-  const okayButton = document.createElement("button");
-  okayButton.classList.add("primary-button", "okay");
-  okayButton.textContent = LL.BUTTON.OKAY();
-  okayButton.addEventListener("click", closeModal);
+  for (const btnDef of buttons) {
+    const btn = document.createElement("button");
+    btn.className = btnDef.className;
+    btn.textContent = btnDef.text;
+    if (btnDef.disabled) {
+      btn.disabled = true;
+    }
+    if (btnDef.action === "close") {
+      btn.addEventListener("click", closeModal);
+    } else if (btnDef.onClick) {
+      btn.addEventListener("click", () => btnDef.onClick(closeModal, btn));
+    }
+    actionButtons.append(btn);
+  }
 
   closeWrapper.append(closeButton);
-  actionButtons.append(okayButton);
-  actionContainer.append(actionHeader, actionMessage, actionButtons);
+  actionContainer.append(actionHeader, actionMessage, ...extraContent, actionButtons);
   actionWrapper.append(actionContainer);
   modalContainer.append(closeWrapper, actionWrapper);
   modalContent.append(modalContainer);
@@ -303,14 +414,104 @@ function showModal(message) {
 
   document.body.classList.add("show-modal");
 
-  function closeModal() {
-    if (document.querySelectorAll("#modal").length > 1) {
-      modal.remove();
-    } else {
-      document.body.classList.remove("show-modal");
-      setTimeout(() => modal.remove(), 250);
+  return { modal, closeModal };
+}
+
+function showModal(message) {
+  createModalBase({
+    title: LL.HEADER.MESSAGE(),
+    message,
+    buttons: [
+      { text: LL.BUTTON.OKAY(), className: "primary-button okay", action: "close" },
+    ],
+  });
+}
+
+function showConfirmModal(message, onConfirm) {
+  createModalBase({
+    title: LL.HEADER.MESSAGE(),
+    message,
+    buttons: [
+      {
+        text: LL.BUTTON.CONFIRM(),
+        className: "primary-button",
+        onClick: (closeModal) => { closeModal(); onConfirm(); },
+      },
+      { text: LL.BUTTON.CANCEL(), className: "secondary-button close", action: "close" },
+    ],
+  });
+}
+
+function showResultModal(books) {
+  const outdatedBooks = books.filter(
+    (b) => b.dataset.checkStatus === Status.OUTDATED,
+  );
+  const skippedBooks = books.filter(
+    (b) => b.dataset.checkStatus === Status.SKIPPED,
+  );
+  const failedBooks = books.filter(
+    (b) => b.dataset.checkStatus === Status.FAILED,
+  );
+  const latestBooks = books.filter(
+    (b) => b.dataset.checkStatus === Status.LATEST,
+  );
+
+  const summaryText = LL.MESSAGE.FINISHED_CHECKING_PAGE({
+    latest: latestBooks.length,
+    outdated: outdatedBooks.length,
+    skipped: skippedBooks.length,
+    failed: failedBooks.length,
+  });
+
+  const bookListContainer = document.createElement("div");
+  bookListContainer.classList.add("result-book-list");
+
+  const nonLatestBooks = [...outdatedBooks, ...skippedBooks, ...failedBooks];
+
+  if (nonLatestBooks.length > 0) {
+    const ul = document.createElement("ul");
+    for (const book of nonLatestBooks) {
+      const li = document.createElement("li");
+
+      const titleSpan = document.createElement("span");
+      titleSpan.textContent = getBookTitle(book);
+
+      const statusTag = document.createElement("span");
+      statusTag.classList.add("status-tag", book.dataset.checkStatus);
+      const statusKey = book.dataset.checkStatus.toUpperCase();
+      statusTag.textContent = LL.STATUS[statusKey]();
+
+      li.append(titleSpan, statusTag);
+      ul.append(li);
     }
+    bookListContainer.append(ul);
+  } else {
+    const allLatestMsg = document.createElement("p");
+    allLatestMsg.style = "text-align: center; color: #4CAF50; margin: 12px 0;";
+    allLatestMsg.textContent = LL.MESSAGE.ALL_LATEST();
+    bookListContainer.append(allLatestMsg);
   }
+
+  createModalBase({
+    title: LL.HEADER.RESULT(),
+    message: summaryText,
+    messageStyle: "display: inline-block; text-align: left;",
+    extraContent: [bookListContainer],
+    buttons: [
+      { text: LL.BUTTON.OKAY(), className: "primary-button okay", action: "close" },
+      {
+        text: LL.BUTTON.COPY_OUTDATED(),
+        className: "primary-button",
+        disabled: outdatedBooks.length === 0,
+        onClick: (_closeModal, buttonEl) => {
+          GM.setClipboard(outdatedBooks.map(getBookTitle).join("\n"));
+          const originalText = buttonEl.textContent;
+          buttonEl.textContent = LL.BUTTON.COPIED();
+          setTimeout(() => { buttonEl.textContent = originalText; }, 2000);
+        },
+      },
+    ],
+  });
 }
 
 const Status = {
@@ -321,6 +522,9 @@ const Status = {
   SKIPPED: "skipped",
   FAILED: "failed",
 };
+
+let hasChecked = false;
+let isChecking = false;
 
 const queue = new Queue({ autostart: true, concurrency: 6 });
 queue.addEventListener("error", (event) => {
@@ -338,6 +542,8 @@ observer.observe(document.getElementById("library-grid"), { childList: true });
 init();
 
 function init() {
+  hasChecked = false;
+
   const books = Array.from(document.querySelectorAll(".item-wrapper.book"));
   for (const book of books) {
     const actions = book.querySelector(
@@ -369,70 +575,46 @@ function init() {
   checkButton.textContent = LL.BUTTON.CHECK_PAGE();
   checkButton.addEventListener("click", () => checkUpdateForBooks(books));
 
-  const copyButton = document.createElement("button");
-  copyButton.classList.add("update-button");
-  copyButton.textContent = LL.BUTTON.COPY_OUTDATED();
-  copyButton.addEventListener("click", () => {
-    if (!books.some((book) => book.dataset.checkStatus)) {
-      showModal(LL.MESSAGE.NO_BOOKS_BEEN_CHECKED());
-      return;
-    }
-
-    const outdated = books.filter(
-      (book) => book.dataset.checkStatus === Status.OUTDATED,
-    );
-    if (outdated.length > 0) {
-      GM.setClipboard(outdated.map(getBookTitle).join("\n"));
-      showModal(LL.MESSAGE.COPIED_BOOKS(outdated.length));
-    } else {
-      showModal(LL.MESSAGE.NO_BOOKS_WERE_OUTDATED());
-    }
+  const viewResultButton = document.createElement("button");
+  viewResultButton.classList.add("update-button");
+  viewResultButton.textContent = LL.BUTTON.VIEW_RESULT();
+  viewResultButton.disabled = true;
+  viewResultButton.addEventListener("click", () => {
+    showResultModal(books);
   });
 
-  updateControls.append(checkButton, copyButton);
+  updateControls.append(checkButton, viewResultButton);
   updateContainer.appendChild(updateControls);
   secondaryControls.insertBefore(updateContainer, secondaryControls.firstChild);
 
   function checkUpdateForBooks(books) {
+    if (isChecking) return;
+
+    if (hasChecked) {
+      showConfirmModal(LL.MESSAGE.CONFIRM_RECHECK(), () => {
+        doCheck(books);
+      });
+      return;
+    }
+
+    doCheck(books);
+  }
+
+  function doCheck(books) {
+    isChecking = true;
+    hasChecked = true;
     checkButton.disabled = true;
     checkButton.textContent = LL.BUTTON.CHECKING_PAGE();
 
     queue.addEventListener(
       "end",
       () => {
-        let latest = 0;
-        let outdated = 0;
-        let skipped = 0;
-        let failed = 0;
-
-        for (const book of books) {
-          switch (book.dataset.checkStatus) {
-            case Status.LATEST:
-              latest++;
-              break;
-            case Status.OUTDATED:
-              outdated++;
-              break;
-            case Status.SKIPPED:
-              skipped++;
-              break;
-            case Status.FAILED:
-              failed++;
-              break;
-          }
-        }
-
-        showModal(
-          LL.MESSAGE.FINISHED_CHECKING_PAGE({
-            latest,
-            outdated,
-            skipped,
-            failed,
-          }),
-        );
-
+        isChecking = false;
         checkButton.disabled = false;
         checkButton.textContent = LL.BUTTON.CHECK_PAGE();
+        viewResultButton.disabled = false;
+
+        showResultModal(books);
       },
       { once: true },
     );
