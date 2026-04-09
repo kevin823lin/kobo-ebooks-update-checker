@@ -20,6 +20,12 @@ This project is forked from [Kobo e-Books Update Checker](https://greasyfork.org
 2. Install this UserScript (or manually paste the contents of `kobo-ebooks-update-checker.user.js` into your script manager)
 3. Navigate to your [Kobo Library](https://www.kobo.com/) and start using it
 
+## Demo
+
+![Demo 0](images/f3e3fb3953734b544209a8b326a6d0fef7b30a436b18c6321a695570b43e65c8.png)  
+
+![Demo 1](images/e00bf5c85f234f85096a67aa11979c2c4de4a663bcf1f8fac86c38535809fe52.png)  
+
 ## License
 
 [MIT](LICENSE) — Original author Jason Kwok, fork maintainer kevin823lin

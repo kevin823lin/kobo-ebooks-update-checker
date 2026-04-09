@@ -20,6 +20,12 @@
 2. 點擊安裝本 UserScript（或手動將 `kobo-ebooks-update-checker.user.js` 的內容貼入腳本管理器）
 3. 前往 [Kobo 書架頁面](https://www.kobo.com/)，即可使用
 
+## 演示
+
+![Demo 0](images/f3e3fb3953734b544209a8b326a6d0fef7b30a436b18c6321a695570b43e65c8.png)  
+
+![Demo 1](images/e00bf5c85f234f85096a67aa11979c2c4de4a663bcf1f8fac86c38535809fe52.png)  
+
 ## 授權
 
 [MIT](LICENSE) — 原作者 Jason Kwok，fork 維護者 kevin823lin
